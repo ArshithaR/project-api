@@ -30,9 +30,12 @@ jobs:
     
     - name: Run unit tests
       run: |
-        pytest tests/test_app.py -v --tb=short
+        export PYTHONPATH=${{ github.workspace }}:$PYTHONPATH
+        python -m pytest tests/test_app.py -v --tb=short
     
     - name: Verify application
+      env:
+        PYTHONPATH: "${{ github.workspace }}"
       run: |
         python -c "
 from app import create_app

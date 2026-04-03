@@ -39,10 +39,12 @@ jobs:
     
     - name: Run integration tests
       run: |
-        pytest tests/test_app.py -v --tb=short --cov=app
+        export PYTHONPATH=${{ github.workspace }}:$PYTHONPATH
+        python -m pytest tests/test_app.py -v --tb=short --cov=app
     
     - name: Test API endpoints
       run: |
+        export PYTHONPATH=${{ github.workspace }}:$PYTHONPATH
         python -c "
 from app import create_app, db
 app = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:'})

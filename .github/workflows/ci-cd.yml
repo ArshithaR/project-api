@@ -41,10 +41,12 @@ jobs:
     
     - name: Run tests with coverage
       run: |
-        pytest tests/ -v --tb=short --cov=app --cov-report=xml
+        export PYTHONPATH=${{ github.workspace }}:$PYTHONPATH
+        python -m pytest tests/ -v --tb=short --cov=app --cov-report=xml
     
     - name: Verify app initialization
       run: |
+        export PYTHONPATH=${{ github.workspace }}:$PYTHONPATH
         python -c "from app import create_app; app = create_app(); print('✓ App initializes successfully')"
 
   security-scan:
