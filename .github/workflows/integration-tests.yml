@@ -1,0 +1,121 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      sqlite:
+        image: ubuntu:latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-integration-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-integration-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+    
+    - name: Run integration tests
+      run: |
+        pytest tests/test_app.py -v --tb=short --cov=app
+    
+    - name: Test API endpoints
+      run: |
+        python -c "
+from app import create_app, db
+app = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:'})
+with app.test_client() as client:
+    # Test home page
+    resp = client.get('/')
+    assert resp.status_code in [200, 302], f'Home page failed: {resp.status_code}'
+    
+    # Test auth pages
+    resp = client.get('/auth/login')
+    assert resp.status_code == 200, f'Login page failed: {resp.status_code}'
+    
+    resp = client.get('/auth/register')
+    assert resp.status_code == 200, f'Register page failed: {resp.status_code}'
+    
+    # Test metrics endpoint
+    resp = client.get('/metrics')
+    assert resp.status_code == 200, f'Metrics endpoint failed: {resp.status_code}'
+    
+    print('✓ All API endpoints responding correctly')
+        "
+
+  docker-build:
+    name: Docker Build
+    needs: integration-tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Build Docker image
+      run: |
+        docker build -t api-monitor:latest .
+        docker inspect api-monitor:latest
+    
+    - name: Test Docker container
+      run: |
+        docker run --rm -e "START_MONITOR=false" api-monitor:latest python -c "
+from app import create_app
+app = create_app()
+print('✓ Docker image validated successfully')
+        "
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit safety
+    
+    - name: Run Bandit security scan
+      run: |
+        bandit -r app/ -f json -o bandit-report.json || true
+        bandit -r app/ -ll || true
+      continue-on-error: true
+    
+    - name: Check Python dependencies
+      run: |
+        pip install -r requirements.txt > /dev/null 2>&1
+        safety check --json > safety-report.json || true
+        safety check || true
+      continue-on-error: true
