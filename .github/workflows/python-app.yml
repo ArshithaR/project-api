@@ -58,6 +58,9 @@ jobs:
         pip install -r requirements.txt
         pip install pytest pytest-cov
 
+    - name: Set up Chrome
+      uses: browser-actions/setup-chrome@v1
+
     - name: Check Python syntax
       run: |
         python -m py_compile app.py
@@ -71,11 +74,10 @@ jobs:
         export PYTHONPATH=${{ github.workspace }}:$PYTHONPATH
         python -m pytest tests/test_app.py -v --tb=short
       
-    - name: Run Selenium smoke tests (if available)
+    - name: Run Selenium smoke tests
       run: |
         export PYTHONPATH=${{ github.workspace }}:$PYTHONPATH
-        python -m pytest tests/test_selenium.py -v --tb=short || true
-      continue-on-error: true
+        python -m pytest tests/test_selenium.py -v --tb=short
 
   build:
     name: Build Docker image

@@ -32,6 +32,7 @@ def monitor_apis():
                                     api_id=api.id,
                                     status_code=status_code,
                                     response_time=response_time,
+                                    is_success=(status_code == 200),
                                     timestamp=datetime.utcnow()
                                 )
 
@@ -40,6 +41,8 @@ def monitor_apis():
                                     api_id=api.id,
                                     status_code=0,
                                     response_time=None,
+                                    is_success=False,
+                                    error_message="Request timeout",
                                     timestamp=datetime.utcnow()
                                 )
 
@@ -48,6 +51,8 @@ def monitor_apis():
                                     api_id=api.id,
                                     status_code=None,
                                     response_time=None,
+                                    is_success=False,
+                                    error_message="Connection error",
                                     timestamp=datetime.utcnow()
                                 )
 
@@ -56,6 +61,7 @@ def monitor_apis():
                                     api_id=api.id,
                                     status_code=None,
                                     response_time=None,
+                                    is_success=False,
                                     timestamp=datetime.utcnow()
                                 )
 
@@ -66,6 +72,10 @@ def monitor_apis():
 
                     try:
                         db.session.commit()
+                        # Generate alerts for each API after logging
+                        from app.routes import generate_alerts_for_api
+                        for api in apis:
+                            generate_alerts_for_api(api)
                     except Exception:
                         db.session.rollback()
 

@@ -7,19 +7,241 @@
     </div>
 </div>
 
-<div class="row">
-    <div class="col">
-        <div class="card">
+<!-- Alert Legend -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card bg-light">
             <div class="card-body">
-                <p class="text-muted">You will receive alerts here when:</p>
-                <ul>
-                    <li>An API goes down (status code != 200)</li>
-                    <li>Response time exceeds your configured threshold</li>
-                    <li>An API becomes unavailable</li>
-                </ul>
-                <p class="text-center text-muted mt-4">No active alerts right now 🎉</p>
+                <h5 class="card-title">Alert Types</h5>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="alert-legend">
+                            <span class="badge bg-danger" style="animation: pulse 1s infinite;">●</span>
+                            <strong>OFFLINE (Critical)</strong> - Connection refused/DNS failure
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="alert-legend">
+                            <span class="badge bg-danger">●</span>
+                            <strong>ERROR (Error)</strong> - Non-200 HTTP status code
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="alert-legend">
+                            <span class="badge bg-warning text-dark">●</span>
+                            <strong>SLOW (Warning)</strong> - Response time exceeds threshold
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Active Alerts Section -->
+<div class="row mb-4">
+    <div class="col">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Active Alerts <span class="badge bg-danger" id="alert-count">0</span></h5>
+            </div>
+            <div class="card-body" id="alerts-container">
+                <div class="text-center text-muted">
+                    <p>Loading alerts...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    @keyframes pulse {
+        0%, 100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.5;
+        }
+    }
+
+    .alert-legend {
+        margin-bottom: 10px;
+    }
+
+    .alert-item {
+        border-left: 4px solid;
+        padding: 15px;
+        margin-bottom: 15px;
+        border-radius: 4px;
+        background-color: #f8f9fa;
+    }
+
+    .alert-item.alert-offline {
+        border-left-color: #dc3545;
+        background-color: rgba(220, 53, 69, 0.1);
+    }
+
+    .alert-item.alert-error {
+        border-left-color: #dc3545;
+        background-color: rgba(220, 53, 69, 0.05);
+    }
+
+    .alert-item.alert-slow {
+        border-left-color: #ffc107;
+        background-color: rgba(255, 193, 7, 0.1);
+    }
+
+    .alert-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .alert-name {
+        font-weight: bold;
+        font-size: 1.1em;
+    }
+
+    .alert-badge {
+        font-size: 0.9em;
+        padding: 6px 12px;
+    }
+
+    .alert-badge.offline {
+        background-color: #dc3545;
+        animation: pulse 1s infinite;
+    }
+
+    .alert-badge.error {
+        background-color: #dc3545;
+    }
+
+    .alert-badge.slow {
+        background-color: #ffc107;
+        color: #000;
+    }
+
+    .alert-message {
+        color: #495057;
+        margin-bottom: 10px;
+    }
+
+    .alert-time {
+        font-size: 0.85em;
+        color: #6c757d;
+        margin-bottom: 10px;
+    }
+
+    .alert-actions {
+        display: flex;
+        gap: 10px;
+    }
+
+    .alert-actions button {
+        padding: 4px 12px;
+        font-size: 0.9em;
+    }
+</style>
+
+<script>
+    async function loadAlerts() {
+        try {
+            const response = await fetch('{{ url_for("main.get_alerts") }}');
+            const data = await response.json();
+            
+            const container = document.getElementById('alerts-container');
+            const countBadge = document.getElementById('alert-count');
+            
+            countBadge.textContent = data.count;
+            
+            if (data.alerts.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-success">
+                        <p class="mb-0">✓ All systems operational - No active alerts</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            data.alerts.forEach(alert => {
+                const createdAt = new Date(alert.created_at);
+                const timeStr = createdAt.toLocaleString();
+                
+                let alertType = alert.alert_type.toUpperCase();
+                let badge = '';
+                let itemClass = '';
+                let details = '';
+                
+                if (alert.alert_type === 'offline') {
+                    badge = '<span class="badge bg-danger alert-badge offline">OFFLINE</span>';
+                    itemClass = 'alert-offline';
+                } else if (alert.alert_type === 'error') {
+                    badge = `<span class="badge bg-danger alert-badge error">ERROR ${alert.status_code || ''}</span>`;
+                    itemClass = 'alert-error';
+                    details = `<div class="alert-detail">Status Code: <strong>${alert.status_code}</strong></div>`;
+                } else if (alert.alert_type === 'slow') {
+                    badge = '<span class="badge bg-warning text-dark alert-badge slow">SLOW</span>';
+                    itemClass = 'alert-slow';
+                    details = `<div class="alert-detail">Response Time: <strong>${alert.response_time.toFixed(2)}ms</strong> (threshold: check API settings)</div>`;
+                }
+                
+                html += `
+                    <div class="alert-item ${itemClass}">
+                        <div class="alert-header">
+                            <span class="alert-name">${alert.api_name}</span>
+                            ${badge}
+                        </div>
+                        <div class="alert-message">${alert.message}</div>
+                        ${details}
+                        <div class="alert-time">Triggered: ${timeStr}</div>
+                        <div class="alert-actions">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="resolveAlert(${alert.id})">
+                                Resolve
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        } catch (error) {
+            console.error('Error loading alerts:', error);
+            document.getElementById('alerts-container').innerHTML = `
+                <div class="alert alert-danger">
+                    Error loading alerts: ${error.message}
+                </div>
+            `;
+        }
+    }
+    
+    async function resolveAlert(alertId) {
+        if (!confirm('Are you sure you want to resolve this alert?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`{{ url_for("main.resolve_alert", alert_id=0) }}`.replace('0', alertId), {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                loadAlerts();
+            } else {
+                alert('Failed to resolve alert');
+            }
+        } catch (error) {
+            console.error('Error resolving alert:', error);
+            alert('Error resolving alert');
+        }
+    }
+    
+    // Load alerts on page load
+    document.addEventListener('DOMContentLoaded', loadAlerts);
+    
+    // Refresh alerts every 30 seconds
+    setInterval(loadAlerts, 30000);
+</script>
+
 {% endblock %}

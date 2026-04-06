@@ -52,9 +52,27 @@ MONITORED_APIS = Gauge(
 )
 
 
+def load_env_file(project_root):
+    """Load simple KEY=VALUE pairs from a local .env file if present."""
+    env_path = os.path.join(project_root, ".env")
+    if not os.path.exists(env_path):
+        return
+
+    with open(env_path, "r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            os.environ.setdefault(key, value)
+
+
 def create_app(test_config=None):
     """Create and initialize Flask app."""
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    load_env_file(project_root)
     app = Flask(
         __name__,
         template_folder=os.path.join(project_root, "templates"),
@@ -69,6 +87,15 @@ def create_app(test_config=None):
         SQLALCHEMY_DATABASE_URI=os.environ.get("DATABASE_URL", f"sqlite:///{default_db_path}"),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         START_MONITOR=os.environ.get("START_MONITOR", "1").lower() in {"1", "true", "yes"},
+        MAIL_SERVER=os.environ.get("MAIL_SERVER", ""),
+        MAIL_PORT=int(os.environ.get("MAIL_PORT", "587")),
+        MAIL_USE_TLS=os.environ.get("MAIL_USE_TLS", "1").lower() in {"1", "true", "yes"},
+        MAIL_USERNAME=os.environ.get("MAIL_USERNAME", ""),
+        MAIL_PASSWORD=os.environ.get("MAIL_PASSWORD", ""),
+        MAIL_DEFAULT_SENDER=os.environ.get("MAIL_DEFAULT_SENDER", os.environ.get("MAIL_USERNAME", "")),
+        MAIL_SUPPRESS_SEND=os.environ.get("MAIL_SUPPRESS_SEND", "0").lower() in {"1", "true", "yes"},
+        PASSWORD_RESET_EXPIRY_MINUTES=int(os.environ.get("PASSWORD_RESET_EXPIRY_MINUTES", "10")),
+        DEV_SHOW_RESET_CODE=os.environ.get("DEV_SHOW_RESET_CODE", "1").lower() in {"1", "true", "yes"},
     )
 
     if test_config:

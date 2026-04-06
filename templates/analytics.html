@@ -12,11 +12,26 @@
 
 <div class="row">
     {% if apis %}
+    <!-- View Mode Toggle -->
+    <div class="col-md-12 mb-3">
+        <div class="btn-group" role="group">
+            <input type="radio" class="btn-check" name="viewMode" id="viewModeIndividual" value="individual" checked>
+            <label class="btn btn-outline-info" for="viewModeIndividual">📊 Individual API</label>
+            
+            <input type="radio" class="btn-check" name="viewMode" id="viewModeAll" value="all">
+            <label class="btn btn-outline-info" for="viewModeAll">🔗 All APIs Combined</label>
+        </div>
+    </div>
+
+    <!-- API Selector -->
     <div class="col-md-12 mb-4">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">📌 Select API to View Analytics</h5>
-                <div class="btn-group w-100 flex-wrap" role="group">
+                <h5 class="card-title" id="selectorTitle">📌 Select API to View Analytics</h5>
+                <div id="apiSelectorGroup" class="btn-group w-100 flex-wrap" role="group">
+                    <button type="button" class="btn btn-outline-success api-selector all-apis-btn" data-api-id="all" data-api-name="All APIs" style="display:none;">
+                        🔗 All APIs
+                    </button>
                     {% for api in apis %}
                     <button type="button" class="btn btn-outline-primary api-selector" data-api-id="{{ api.id }}" data-api-name="{{ api.name }}">
                         {{ api.name }}
@@ -184,6 +199,41 @@
 <script>
 let mainChart, statusChart;
 let currentApiId = null;
+let viewMode = 'individual';
+
+// View mode toggle
+document.querySelectorAll('input[name="viewMode"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        viewMode = this.value;
+        updateSelectorDisplay();
+        
+        // Clear selection and reset
+        if (viewMode === 'all') {
+            document.querySelectorAll('.api-selector').forEach(b => b.classList.remove('active'));
+            document.querySelector('.all-apis-btn').classList.add('active');
+            document.getElementById('selectorTitle').textContent = '🔗 Viewing all APIs combined';
+            currentApiId = 'all';
+            loadAnalytics('all', 'All APIs');
+        } else {
+            document.querySelectorAll('.api-selector').forEach(b => b.classList.remove('active'));
+            document.getElementById('selectorTitle').textContent = '📌 Select API to View Analytics';
+            currentApiId = null;
+        }
+    });
+});
+
+function updateSelectorDisplay() {
+    const allApisBtn = document.querySelector('.all-apis-btn');
+    const individualBtns = document.querySelectorAll('.api-selector:not(.all-apis-btn)');
+    
+    if (viewMode === 'all') {
+        allApisBtn.style.display = 'block';
+        individualBtns.forEach(btn => btn.style.display = 'none');
+    } else {
+        allApisBtn.style.display = 'none';
+        individualBtns.forEach(btn => btn.style.display = 'block');
+    }
+}
 
 document.querySelectorAll('.api-selector').forEach(btn => {
     btn.addEventListener('click', function() {
@@ -208,29 +258,69 @@ function loadAnalytics(apiId, apiName) {
     
     document.getElementById('analyticsContainer').style.display = 'block';
     
+    // Determine endpoint based on view mode
+    let analyticsUrl, chartDataUrl;
+    if (apiId === 'all') {
+        analyticsUrl = `{{ url_for('main.get_all_analytics') }}?hours=${hours}`;
+        chartDataUrl = `{{ url_for('main.get_all_chart_data') }}?hours=${hours}&type=${chartType}`;
+    } else {
+        analyticsUrl = `{{ url_for('main.get_analytics', api_id=0) }}`.replace('0', apiId) + `?hours=${hours}`;
+        chartDataUrl = `{{ url_for('main.get_chart_data', api_id=0) }}`.replace('0', apiId) + `?hours=${hours}&type=${chartType}`;
+    }
+    
     // Load metrics
-    fetch(`{{ url_for('main.get_analytics', api_id=0) }}`.replace('0', apiId) + `?hours=${hours}`)
+    fetch(analyticsUrl)
         .then(r => r.json())
         .then(data => {
-            document.getElementById('totalRequests').textContent = data.total_requests;
-            document.getElementById('successRate').textContent = data.success_rate.toFixed(1) + '%';
-            document.getElementById('avgResponse').textContent = data.avg_response_time.toFixed(0) + 'ms';
-            document.getElementById('uptime').textContent = data.uptime.toFixed(1) + '%';
-            
-            // Health metrics
-            const healthHTML = `
-                <ul class="list-unstyled">
-                    <li>✅ <strong>Successful:</strong> ${data.success_count}</li>
-                    <li>❌ <strong>Failed:</strong> ${data.failure_count}</li>
-                    <li>📊 <strong>Total Tests:</strong> ${data.total_requests}</li>
-                    <li>📈 <strong>Avg Response:</strong> ${data.avg_response_time.toFixed(0)}ms</li>
-                </ul>
-            `;
-            document.getElementById('healthMetrics').innerHTML = healthHTML;
+            // Check if this is multi-API data (has 'apis' array) or single-API data
+            if (data.apis && Array.isArray(data.apis) && data.apis.length > 0) {
+                // Multi-API view: show aggregated stats across all APIs
+                document.getElementById('totalRequests').textContent = data.total_requests;
+                document.getElementById('successRate').textContent = data.uptime.toFixed(1) + '%';
+                
+                // Calculate average response time across all APIs
+                const avgResponseTimes = data.apis.map(a => a.avg_response_time).filter(t => t > 0);
+                const avgAllAPIs = avgResponseTimes.length > 0 ? 
+                    (avgResponseTimes.reduce((a, b) => a + b, 0) / avgResponseTimes.length) : 0;
+                document.getElementById('avgResponse').textContent = avgAllAPIs.toFixed(0) + 'ms';
+                
+                document.getElementById('uptime').textContent = data.uptime.toFixed(1) + '%';
+                
+                // Health metrics - show per-API breakdown
+                let healthHTML = '<ul class="list-unstyled small">';
+                healthHTML += `<li><strong>Aggregated Stats:</strong></li>`;
+                healthHTML += `<li>✅ <strong>Total Success:</strong> ${data.success_count}</li>`;
+                healthHTML += `<li>❌ <strong>Total Failed:</strong> ${data.failure_count}</li>`;
+                healthHTML += `<li>📊 <strong>Total Tests:</strong> ${data.total_requests}</li>`;
+                healthHTML += `<hr style="margin: 0.5rem 0;">`;
+                // Add per-API stats
+                data.apis.forEach(api => {
+                    healthHTML += `<li><strong>${api.name}:</strong> ${api.requests} req, ${(api.uptime).toFixed(1)}% up</li>`;
+                });
+                healthHTML += '</ul>';
+                document.getElementById('healthMetrics').innerHTML = healthHTML;
+            } else {
+                // Single API view
+                document.getElementById('totalRequests').textContent = data.total_requests;
+                document.getElementById('successRate').textContent = data.success_rate.toFixed(1) + '%';
+                document.getElementById('avgResponse').textContent = data.avg_response_time.toFixed(0) + 'ms';
+                document.getElementById('uptime').textContent = data.uptime.toFixed(1) + '%';
+                
+                // Health metrics
+                const healthHTML = `
+                    <ul class="list-unstyled">
+                        <li>✅ <strong>Successful:</strong> ${data.success_count}</li>
+                        <li>❌ <strong>Failed:</strong> ${data.failure_count}</li>
+                        <li>📊 <strong>Total Tests:</strong> ${data.total_requests}</li>
+                        <li>📈 <strong>Avg Response:</strong> ${data.avg_response_time.toFixed(0)}ms</li>
+                    </ul>
+                `;
+                document.getElementById('healthMetrics').innerHTML = healthHTML;
+            }
         });
     
     // Load chart data
-    fetch(`{{ url_for('main.get_chart_data', api_id=0) }}`.replace('0', apiId) + `?hours=${hours}&type=${chartType}`)
+    fetch(chartDataUrl)
         .then(r => r.json())
         .then(data => {
             updateCharts(data, chartType);
@@ -254,13 +344,16 @@ function updateCharts(data, chartType) {
     };
     document.getElementById('chartTitle').textContent = titleMap[chartType] || '📈 Response Time Chart';
     
+    // Check if data has multi-series format (datasets array) or single-series format
+    const isMultiSeries = data.datasets && Array.isArray(data.datasets) && data.datasets.length > 0;
+    
     // Main chart
     if (chartType === 'pie') {
         mainChart = new Chart(ctx1, {
             type: 'pie',
             data: {
                 labels: data.labels || [],
-                datasets: [{
+                datasets: isMultiSeries ? data.datasets : [{
                     data: data.data || [],
                     backgroundColor: ['#10b981', '#ef4444']
                 }]
@@ -276,7 +369,7 @@ function updateCharts(data, chartType) {
             type: 'bar',
             data: {
                 labels: data.labels || [],
-                datasets: [{
+                datasets: isMultiSeries ? data.datasets : [{
                     label: 'Avg Response Time (ms)',
                     data: data.response_times || [],
                     backgroundColor: '#667eea',
@@ -292,18 +385,20 @@ function updateCharts(data, chartType) {
             }
         });
     } else if (chartType === 'area') {
+        const datasets = isMultiSeries ? data.datasets : [{
+            label: 'Response Time (ms)',
+            data: data.response_times || [],
+            borderColor: '#667eea',
+            backgroundColor: 'rgba(102, 126, 234, 0.2)',
+            tension: 0.4,
+            fill: true
+        }];
+        
         mainChart = new Chart(ctx1, {
             type: 'line',
             data: {
                 labels: data.labels || [],
-                datasets: [{
-                    label: 'Response Time (ms)',
-                    data: data.response_times || [],
-                    borderColor: '#667eea',
-                    backgroundColor: 'rgba(102, 126, 234, 0.2)',
-                    tension: 0.4,
-                    fill: true
-                }]
+                datasets: datasets
             },
             options: {
                 responsive: true,
@@ -312,18 +407,20 @@ function updateCharts(data, chartType) {
             }
         });
     } else {
+        const datasets = isMultiSeries ? data.datasets : [{
+            label: 'Response Time (ms)',
+            data: data.response_times || [],
+            borderColor: '#667eea',
+            backgroundColor: 'rgba(102, 126, 234, 0.05)',
+            tension: 0.4,
+            fill: false
+        }];
+        
         mainChart = new Chart(ctx1, {
             type: 'line',
             data: {
                 labels: data.labels || [],
-                datasets: [{
-                    label: 'Response Time (ms)',
-                    data: data.response_times || [],
-                    borderColor: '#667eea',
-                    backgroundColor: 'rgba(102, 126, 234, 0.05)',
-                    tension: 0.4,
-                    fill: false
-                }]
+                datasets: datasets
             },
             options: {
                 responsive: true,
@@ -333,8 +430,8 @@ function updateCharts(data, chartType) {
         });
     }
     
-    // Status Chart
-    if (data.status_codes && data.status_codes.length > 0) {
+    // Status Chart (only for single API, not multi-series)
+    if (!isMultiSeries && data.status_codes && data.status_codes.length > 0) {
         const successCount = data.status_codes.filter(s => s === 200).length;
         const failedCount = data.status_codes.length - successCount;
         
@@ -345,6 +442,26 @@ function updateCharts(data, chartType) {
                 datasets: [{
                     data: [successCount, failedCount],
                     backgroundColor: ['#10b981', '#ef4444']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: true } }
+            }
+        });
+    } else if (isMultiSeries && data.datasets[0] && data.datasets[0].data) {
+        // For multi-series, show combined success/failure stats
+        const allData = data.datasets.flatMap(d => d.data || []);
+        const totalRequests = allData.reduce((a, b) => a + (b || 0), 0);
+        
+        statusChart = new Chart(ctx2, {
+            type: 'doughnut',
+            data: {
+                labels: data.datasets.map(d => d.label),
+                datasets: [{
+                    data: data.datasets.map(d => d.data.length),
+                    backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'].slice(0, data.datasets.length)
                 }]
             },
             options: {

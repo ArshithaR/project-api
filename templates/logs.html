@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1>API Logs</h1>
+        </div>
+        <div class="col-md-4 text-right">
+            <a href="{{ url_for('main.export_logs_csv', api_id=selected_api, hours=hours, status=status_filter, search=search) }}" class="btn btn-success">
+                <i class="fas fa-file-csv"></i> Export as CSV
+            </a>
+            <a href="{{ url_for('main.export_logs_pdf', api_id=selected_api, hours=hours, status=status_filter, search=search) }}" class="btn btn-danger">
+                <i class="fas fa-file-pdf"></i> Export as PDF
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters Card -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">Filters</h5>
+        </div>
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-3">
+                    <label for="api_id" class="form-label">API</label>
+                    <select class="form-select" id="api_id" name="api_id" onchange="this.form.submit()">
+                        <option value="">All APIs</option>
+                        {% for api in apis %}
+                            <option value="{{ api.id }}" {% if selected_api == api.id %}selected{% endif %}>
+                                {{ api.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label for="hours" class="form-label">Time Range</label>
+                    <select class="form-select" id="hours" name="hours" onchange="this.form.submit()">
+                        <option value="1" {% if hours == 1 %}selected{% endif %}>Last 1 hour</option>
+                        <option value="6" {% if hours == 6 %}selected{% endif %}>Last 6 hours</option>
+                        <option value="24" {% if hours == 24 %}selected{% endif %}>Last 24 hours</option>
+                        <option value="168" {% if hours == 168 %}selected{% endif %}>Last 7 days</option>
+                        <option value="720" {% if hours == 720 %}selected{% endif %}>Last 30 days</option>
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label for="status" class="form-label">Status</label>
+                    <select class="form-select" id="status" name="status" onchange="this.form.submit()">
+                        <option value="">All</option>
+                        <option value="success" {% if status_filter == 'success' %}selected{% endif %}>Success</option>
+                        <option value="error" {% if status_filter == 'error' %}selected{% endif %}>Error</option>
+                    </select>
+                </div>
+
+                <div class="col-md-5">
+                    <label for="search" class="form-label">Search</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="search" name="search" 
+                               value="{{ search }}" placeholder="Search error messages...">
+                        <button class="btn btn-primary" type="submit">Search</button>
+                        {% if search or (selected_api and selected_api != '') or (status_filter and status_filter != '') %}
+                            <a href="{{ url_for('main.logs_page') }}" class="btn btn-secondary">Clear</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">Total Logs</h6>
+                    <h3 class="text-primary">{{ pagination.total }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">Successful</h6>
+                    <h3 class="text-success">
+                        {% set success_count = logs|selectattr('is_success')|list|length * pagination.total // (pagination.total or 1) %}
+                        {{ success_count if pagination.total > 0 else 0 }}
+                    </h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">Failed</h6>
+                    <h3 class="text-danger">
+                        {% set failed_count = pagination.total - success_count %}
+                        {{ failed_count if pagination.total > 0 else 0 }}
+                    </h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">Avg Response Time</h6>
+                    <h3 class="text-info">
+                        {% set avg_time = 0 %}
+                        {% if logs %}
+                            {% set response_times = logs|map(attribute='response_time')|reject('none')|list %}
+                            {% if response_times %}
+                                {% set total_time = response_times|sum %}
+                                {% set avg_time = total_time / response_times|length %}
+                            {% endif %}
+                        {% endif %}
+                        {{ "%.0f"|format(avg_time) }}ms
+                    </h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Table -->
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>API</th>
+                        <th>Status Code</th>
+                        <th>Response Time (ms)</th>
+                        <th>Status</th>
+                        <th>Error Message</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if logs %}
+                        {% for log in logs %}
+                            <tr>
+                                <td>
+                                    <small>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+                                </td>
+                                <td>
+                                    <a href="?api_id={{ log.api_id }}">{{ log.api.name }}</a>
+                                </td>
+                                <td>
+                                    <span class="badge {% if log.status_code is none %}bg-secondary{% elif log.status_code == 200 %}bg-success{% elif log.status_code >= 500 %}bg-danger{% elif log.status_code >= 400 %}bg-warning text-dark{% else %}bg-info{% endif %}">
+                                        {{ log.status_code or 'N/A' }}
+                                    </span>
+                                </td>
+                                <td>{{ log.response_time }}</td>
+                                <td>
+                                    {% if log.is_success %}
+                                        <span class="badge bg-success">Success</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Error</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if log.error_message %}
+                                        <small class="text-muted" title="{{ log.error_message }}">
+                                            {{ log.error_message[:50] }}{% if log.error_message|length > 50 %}...{% endif %}
+                                        </small>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-muted">
+                                <i class="fas fa-inbox" style="font-size: 2rem;"></i>
+                                <p class="mt-2">No logs found</p>
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    {% if pagination.pages > 1 %}
+        <nav aria-label="Page navigation" class="mt-4">
+            <ul class="pagination justify-content-center">
+                {% if pagination.has_prev %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('main.logs_page', page=pagination.prev_num, api_id=selected_api or '', search=search, hours=hours, status=status_filter) }}">
+                            Previous
+                        </a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">Previous</span>
+                    </li>
+                {% endif %}
+
+                {% for page_num in pagination.iter_pages() %}
+                    {% if page_num %}
+                        {% if page_num == pagination.page %}
+                            <li class="page-item active">
+                                <span class="page-link">{{ page_num }}</span>
+                            </li>
+                        {% else %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('main.logs_page', page=page_num, api_id=selected_api or '', search=search, hours=hours, status=status_filter) }}">
+                                    {{ page_num }}
+                                </a>
+                            </li>
+                        {% endif %}
+                    {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link">...</span>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if pagination.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('main.logs_page', page=pagination.next_num, api_id=selected_api or '', search=search, hours=hours, status=status_filter) }}">
+                            Next
+                        </a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">Next</span>
+                    </li>
+                {% endif %}
+            </ul>
+        </nav>
+    {% endif %}
+</div>
+
+<style>
+    .table-hover tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+    
+    .card {
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    }
+    
+    .badge {
+        font-size: 0.875rem;
+        padding: 0.35rem 0.65rem;
+    }
+</style>
+{% endblock %}
